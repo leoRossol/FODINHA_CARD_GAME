@@ -27,7 +27,6 @@ def card_rank(card):
 class Game:
 
     def __init__(self, player_names):
-
         #check if the game has four players
         if len(player_names) != 4:
             raise ValueError("THE GAME NEEDS 4 PLAYERS TO BEGIN")
@@ -115,29 +114,41 @@ class Game:
             player.score += abs(player.bet - player.tricks_won)
 
     def play_trick(self, starting_player_index):
-
         played = []
         for i in range(4):
             player_index = (starting_player_index + i) % 4
             player = self.players[player_index]
-
             card = player.hand.pop(0)
             played.append((player, card))
             print(f"{player.name} plays {card}")
 
+        #count card values
+        special_cards = {(7,'Diamonds'), (7, 'Spades'), (14, 'Clubs'), (14, 'Spades')}
+        value_counts = {}
+        for _, card in played:
+            if (card.value, card.suit) not in special_cards:
+                value_counts[card.value] = value_counts.get(card.value, 0) +1
+
+
+        #check all cards
+        if len(set(card.value for _, card in played)) == 1:
+            print("DOBROU PROXIMO ROUND")
+            self.next_round_double = True #todo handle this shit lol
+            return None
+
+        #find voided
+        voided_values = {v for v, count in value_counts.items() if count>1}
+        valid_plays = [(player, card) for player, card in played if card.value not in voided_values or (card.value, card.suit) in special_cards]
+
+        if not valid_plays:
+            print ("Empate geral, sem ganhador")
+            return None
+
         winner = max(played, key=lambda x: card_rank(x[1]))[0]
         winner.tricks_won += 1
-        print(f"{winner.name} wins the trick")
+        print(f"{winner.name} Ganhou a rodada!")
         return winner
 
-    def determine_winners(self):
-        pass
-
-    def handle_ties(self):
-        pass
-
-    def eliminate_players(self):
-        pass
 
     def game_over(self):
         pass

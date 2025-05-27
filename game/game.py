@@ -31,124 +31,136 @@ class Game:
         if len(player_names) != 4:
             raise ValueError("THE GAME NEEDS 4 PLAYERS TO BEGIN")
 
-        self.deck = Deck()
         self.players = [Player(name) for name in player_names]
         self.round = 1
         self.dealer_index = 0
+        self.state = 'betting'
+        self.bets = [None]*4
+        self.played_cards = []
+        self.current_trick = []
+        self.current_player_index = (self.dealer_index +1)%4
+        self.next_round_double = False
+        self.deck = None
 
-    def start(self):
-        while not self.game_over():
-            self.play_round()
-            self.round += 1
-            self.dealer_index = (self.dealer_index + 1) % 4
 
-    def play_round(self):
+    def start_new_round(self):
         self.deck = Deck()
         self.deck.shuffle()
         self.deal_cards()
 
-        self.reveal_cards()
-        self.collect_bets()
-
         for player in self.players:
             player.tricks_won = 0
 
-        starting_player = (self.dealer_index + 1) % 4
-        for _ in range(self.round):
-            winner = self.play_trick(starting_player)
-            starting_player = self.players.index(winner)
+        self.bets = [None]*4
+        self.played_cards = []
+        self.current_trick = []
+        self.current_player_index = (self.dealer_index +1)%4
 
-        self.update_scores()
-        self.dealer_index = (self.dealer_index + 1) % 4
 
     def deal_cards(self):
         for player in self.players:
-            player.hand = []  #clear the player hand
-
-            #for loop draws n of cards equal to the round
+            player.hand = []
             for _ in range(self.round):
                 card = self.deck.draw()
                 if card:
                     player.hand.append(card)
 
-    #TODO - REPLACE THE PRINT STATEMENTS WITH ACTUAL DISPLAY LOGIC
-    def reveal_cards(self):
-        if self.round == 1:
-            # First round: everyone sees all cards except their own
-            for player in self.players:
-                visible_cards = {p.name: p.hand[0] for p in self.players if p != player}
-                # Here, display `visible_cards` to `player`
-                # and hide their own card from them
-                print(f"{player.name} sees: {visible_cards}")
+
+    def set_bet(self, player_index, bet):
+        #return true if bet is valid
+        self.bets[player_index] = bet
+        self.players[player_index].bet = bet
+        if player_index == (self.dealer_index +3)%4:
+            if sum(self.bets) == self.round:
+                self.bets[player_index] = None
+                self.players[player_index].bet = None
+                return False
+            else:
+                self.state = 'playing'
+
+        #advance to next player
+        self.current_player_index = (self.current_player_index +1)%4
+        if all(b is not None for b in self.bets):
+            self.state = 'playing'
+            self.current_player_index = (self.dealer_index +1)%4
+        return True
+
+
+    def get_player_hand(self, player_index):
+        return self.players[player_index].hand
+
+
+    def get_scores(self):
+        return [p.score for p in self.players]
+
+
+    def get_current_player(self):
+        return self.current_player_index
+
+
+    def get_state(self):
+        return self.state
+
+
+    def play_card(self, player_index, card_index):
+        #return winner_index and trick_end if end, else none
+        if self.state != 'playing':
+            return None
+
+        card = self.players[player_index].hand.pop(card_index)
+        self.current_trick.append((player_index, card))
+        if len(self.current_trick) == 4:
+            winner_index = self.resolve_trick()
+            self.current_trick = []
+            self.played_cards.append([c for _, c in self.current_trick])
+            #check if round ends
+            if all(len(p.hand) == 0 for p in self.players):
+                self.update_scores()
+                self.state = 'round_end'
+            self.current_player_index = winner_index
+            return (winner_index, True)
         else:
-            # Other rounds: each player sees only their own cards
-            for player in self.players:
-                print(f"{player.name} sees their cards: {player.hand}")
+            self.current_player_index = (self.current_player_index +1)%4
+            return (None, False)
 
-    # TODO - REPLACE THE PRINT STATEMENTS WITH ACTUAL DISPLAY LOGIC
-    def collect_bets(self):
-        bets = [None] * 4
 
-        for i in range(4):
-            player_index = (self.dealer_index + 1 + i) % 4
-            player = self.players[player_index]
+    def resolve_trick(self):
+        played = [(self.players[i], c) for i, c in self.current_trick]
+        #special cards and voided logic
+        special_cards = {(7, 'Diamonds'), (7, 'Spades'), (14, 'Clubs'), (14, 'Spades')}
+        value_counts = {}
+        for _, card in played:
+            if (card.value, card.suit) not in special_cards:
+                value_counts[card.value] = value_counts.get(card.value, 0) +1
+        if len(set(card.value for _, card in played)) == 1:
+            self.next_round_double = True
+            return None
+        voided_values = {v for v, count in value_counts.items() if count>1}
+        valid_plays = [(player, card) for player, card in played if card.value not in voided_values or (card.value, card.suit) in special_cards]
+        if not valid_plays:
+            return None
+        winner = max(played, key=lambda x: card_rank(x[1]))[0]
+        winner.tricks_won +=1
+        return self.players.index(winner)
 
-            #replace input() with ui logic
-            bet = int(input(f"{player.name}, place your bet: "))
-            bets[player_index] = bet
-
-            #last player must ensure total bets != round
-            if i == 3 and sum(bets) == self.round:
-                print("total bets == n of rounds")
-                while True:
-                    bet = int(input(f"{player.name}, choose a different bet"))
-                    bets[player_index] = bet
-                    if sum(bets) != self.round:
-                        break
-
-        for player, bet in zip(self.players, bets):
-            player.bet = bet
 
     def update_scores(self):
         for player in self.players:
             player.score += abs(player.bet - player.tricks_won)
 
-    def play_trick(self, starting_player_index):
-        played = []
-        for i in range(4):
-            player_index = (starting_player_index + i) % 4
-            player = self.players[player_index]
-            card = player.hand.pop(0)
-            played.append((player, card))
-            print(f"{player.name} plays {card}")
 
-        #count card values
-        special_cards = {(7,'Diamonds'), (7, 'Spades'), (14, 'Clubs'), (14, 'Spades')}
-        value_counts = {}
-        for _, card in played:
-            if (card.value, card.suit) not in special_cards:
-                value_counts[card.value] = value_counts.get(card.value, 0) +1
+    def next_round(self):
+        self.round += 1
+        self.dealer_index = (self.dealer_index +1)%4
+        self.start_new_round()
 
 
-        #check all cards
-        if len(set(card.value for _, card in played)) == 1:
-            print("DOBROU PROXIMO ROUND")
-            self.next_round_double = True #todo handle this shit lol
-            return None
-
-        #find voided
-        voided_values = {v for v, count in value_counts.items() if count>1}
-        valid_plays = [(player, card) for player, card in played if card.value not in voided_values or (card.value, card.suit) in special_cards]
-
-        if not valid_plays:
-            print ("Empate geral, sem ganhador")
-            return None
-
-        winner = max(played, key=lambda x: card_rank(x[1]))[0]
-        winner.tricks_won += 1
-        print(f"{winner.name} Ganhou a rodada!")
-        return winner
+    def is_game_over(self):
+        return self.round >9
 
 
-    def game_over(self):
-        pass
+    def get_visible_cards(self, player_index):
+        if self.round == 1:
+            return {i: self.players[i].hand[0] for i in range(4) if i != player_index}
+        else:
+            return {player_index: self.players[player_index].hand}
